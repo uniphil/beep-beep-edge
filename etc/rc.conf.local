@@ -1,0 +1,4 @@
+httpd_flags=
+kfcgi_flags=-n 2 -u www -U www -- /fcgi-bin/beep
+pkg_scripts=kfcgi
+syslogd_flags=-Z
