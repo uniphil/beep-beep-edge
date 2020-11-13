@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import hashlib
 import re
+import struct
 
 
 def unwrap_syslog(line):
@@ -10,6 +12,15 @@ def unwrap_syslog(line):
 def parse_httpd_log(line):
     m = re.match(r'^\w+ (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) \-.*\- \[.*\] "GET (.*) HTTP/1\.[01]" 200 0 "(.*?)" "(.*)"\n$', line)
     return m.groups()
+
+
+def compress(ip, ua):
+    ip_bytes = bytes(map(int, ip.split('.')))
+    bits = hashlib.blake2b(ua.encode(), digest_size=4, key=ip_bytes)
+    as_uint, = struct.unpack('I', bits.digest())
+    bucket = as_uint & 0b111111111111  # 12
+    clz = 20 - (as_uint >> 12).bit_length()
+    return bucket, clz
 
 
 def test():
@@ -28,9 +39,9 @@ def test():
             yield item, i == len(l) - 1
 
     def hope(that, will, given, desire):
-        e = lambda: print(f'{r(B("×"))} {B(that.__name__)} could not {B(will)} when:')
+        e = lambda: print(f'{r(B("×"))} {B(that.__name__)}({", ".join(map(repr, given))}) could not {B(will)} when:')
         try:
-            outcome = that(given)
+            outcome = that(*given)
         except Exception as cursed:
             e()
             stack = traceback.extract_tb(cursed.__traceback__.tb_next)
@@ -53,36 +64,48 @@ def test():
         print(f'{g(B("✓"))} {B(that.__name__)} really did {B(will)}')
 
     hope(unwrap_syslog, will='strip the syslog bit before the message',
-        given='2001-01-01T00:00:01.000Z host service[12345]: some message\n',
+        given=('2001-01-01T00:00:01.000Z host service[12345]: some message\n',),
         desire='some message\n')
 
     hope(unwrap_syslog, will='not explode on an empty message',
-        given='2001-01-01T00:00:01.000Z host service[49065]: \n',
+        given=('2001-01-01T00:00:01.000Z host service[49065]: \n',),
         desire='\n')
 
     hope(unwrap_syslog, will='handle a real log line we car about',
-        given='2020-11-09T06:19:24.610Z openbsd-dev httpd[81336]: hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/aaaaaa/bzz.gif" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n',
+        given=('2020-11-09T06:19:24.610Z openbsd-dev httpd[81336]: hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/aaaaaa/bzz.gif" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n',),
         desire='hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/aaaaaa/bzz.gif" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n')
 
     hope(parse_httpd_log, will='extract the parts',
-        given='servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.1" 200 0 "referrer" "ua"\n',
+        given=('servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.1" 200 0 "referrer" "ua"\n',),
         desire=('127.0.0.1', '/path', 'referrer', 'ua'))
 
     hope(parse_httpd_log, will='capture quotes in the UA',
-        given='servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.1" 200 0 "referrer" "u"a"\n',
+        given=('servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.1" 200 0 "referrer" "u"a"\n',),
         desire=('127.0.0.1', '/path', 'referrer', 'u"a'))
 
     hope(parse_httpd_log, will='handle http 1.0 proto',
-        given='servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.0" 200 0 "referrer" "ua"\n',
+        given=('servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.0" 200 0 "referrer" "ua"\n',),
         desire=('127.0.0.1', '/path', 'referrer', 'ua'))
 
     hope(parse_httpd_log, will='handle http absent referrer',
-        given='servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.1" 200 0 "" "ua"\n',
+        given=('servername 127.0.0.1 - - [01/Jan/2001:00:00:01 -0500] "GET /path HTTP/1.1" 200 0 "" "ua"\n',),
         desire=('127.0.0.1', '/path', '', 'ua'))
 
     hope(parse_httpd_log, will='handle a sample line from the real deal',
-        given='hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/aaaaaa/bzz.gif" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n',
+        given=('hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/aaaaaa/bzz.gif" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n',),
         desire=('192.168.1.111', '/aaaaab/bzz.gif', 'http://192.168.8.88/aaaaaa/bzz.gif', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0'))
+
+    hope(compress, will='turn an ip and UA into a bucket and leading-zero count',
+        given=('192.168.1.111', 'ua'),
+        desire=(3974, 5))
+
+    hope(compress, will='turn a different ip into a different bucket & zero count',
+        given=('192.168.1.112', 'ua'),
+        desire=(2302, 0))
+
+    hope(compress, will='turn a different ua into a different bucket & zero count',
+        given=('192.168.1.111', 'uz'),
+        desire=(3578, 1))
 
 
 if __name__ == '__main__':
