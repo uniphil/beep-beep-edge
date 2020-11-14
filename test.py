@@ -112,7 +112,7 @@ hope(compress, will='also work with an empty UA',
 
 hope(vroom, will='pull it all together',
     given=('2020-11-09T06:19:24.610Z openbsd-dev httpd[81336]: hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/this/page" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n',),
-    desire=('/aaaaab/bzz.gif', 'http://192.168.8.88/this/page', 1193, 2))
+    desire=('/aaaaab/bzz.gif', 'http://192.168.8.88/this/page', 1194, 2))
 
 
 if len(regrets) > 0:
