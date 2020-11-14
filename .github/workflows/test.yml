@@ -1,0 +1,22 @@
+name: 'Test'
+
+on: 'push'
+
+jobs:
+  asdf:
+    name: Test the log compressor script
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run tests on ${{ matrix.python-version }}
+        run: |
+          ./test.py
+        with:
+          python-version: ${{ matrix.python-version }}
+
