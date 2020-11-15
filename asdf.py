@@ -50,4 +50,4 @@ if __name__ == '__main__':
     post_office = postit(os.environ['DESTINATION'])
     next(post_office)  # unfortunate init
     for compressed in run_lines(fileinput.input()):
-        post_office.send(compressed)
+        post_office.send(compressed.encode())

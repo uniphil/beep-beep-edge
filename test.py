@@ -4,6 +4,7 @@ import http.server
 import os.path
 import queue
 import socketserver
+import subprocess
 import sys
 import threading
 import traceback
@@ -22,6 +23,18 @@ def with_last(l):
     for i, item in enumerate(l):
         yield item, i == len(l) - 1
 
+def nice_trace(cursed):
+    stack = traceback.extract_tb(cursed.__traceback__.tb_next)
+    current_filename = None
+    for frame, last in with_last(stack):
+        if frame.filename != current_filename:
+            current_filename = frame.filename
+            print(f'  {y("↬")} in {r(os.path.relpath(frame.filename))},')
+        print(f'      {c(frame.name)} {"tried" if last else "ran"}')
+        print(f' {last and "💥" or " "} {frame.lineno: 3d}| {B(frame.line)}')
+    print(f'  which {r("raised")} a {B(cursed)}')
+    print(f'    » {B(cursed)}')
+
 def hope(that, will, given, desire):
     def e():
         print(f'{r(B("×"))} {B(that.__name__)}({", ".join(map(repr, given))}) could not {B(will)} when:')
@@ -30,22 +43,13 @@ def hope(that, will, given, desire):
         outcome = that(*given)
     except Exception as cursed:
         e()
-        stack = traceback.extract_tb(cursed.__traceback__.tb_next)
-        current_filename = None
-        for frame, last in with_last(stack):
-            if frame.filename != current_filename:
-                current_filename = frame.filename
-                print(f'  {y("↬")} in {r(os.path.relpath(frame.filename))},')
-            print(f'      {c(frame.name)} {"tried" if last else "ran"}')
-            print(f' {last and "💥" or " "} {frame.lineno: 3d}| {B(frame.line)}')
-        print(f'  which {r("raised")} a {B(cursed)}')
-        print(f'    » {B(cursed)}')
+        nice_trace(cursed)
         return print()
     else:
         if outcome != desire:
             e()
-            print(f'    we found {r(B(outcome))!r}')
-            print(f'  instead of {B(desire)!r}')
+            print(f'    we found {r(B(outcome))}')
+            print(f'  instead of {B(desire)}')
             return print()
     print(f'{g(B("✓"))} {B(that.__name__)} really did {B(will)}')
 
@@ -77,7 +81,7 @@ class HttpFn(object):
         fn(None)  # start up the generator
 
         @functools.wraps(fn)
-        def uhh(*args):
+        def that_func(*args):
             with server:
                 t = threading.Thread(target=server.serve_forever)
                 t.daemon = True
@@ -85,12 +89,30 @@ class HttpFn(object):
                 fn(*args)
             return self.q.get(timeout=1)
 
-        return uhh
+        return that_func
 
     def __exit__(self, *_errstuff):
-        assert self.q.empty(), 'wat, queue not empty'
+        assert self.q.empty(), f'wat, queue not empty: {self.q.get_nowait()}'
 
-print(B('Test time!'), c(sys.version_info), file=sys.stderr)
+
+class Script(HttpFn):
+    def __init__(self, script_name):
+        self.result = None
+        def gooo(ip, port):
+            while True:
+                lines = yield
+                self.result = subprocess.run(
+                    [script_name], input=lines, text=True, capture_output=True,
+                    env={**os.environ, 'DESTINATION':f'http://{ip}:{port}'})
+        super().__init__(lambda ip, port: gooo(ip, port).send)
+
+    def __exit__(self, *_errstuff):
+        if self.result.returncode != 0:
+            print('wat', self.result.stderr, file=sys.stderr)
+        super().__exit__(*_errstuff)
+
+
+print(B(f'Test time! {c(sys.version_info)}'), file=sys.stderr)
 
 
 hope(unwrap_syslog, will='strip the syslog bit before the message',
@@ -180,6 +202,12 @@ with HttpFn(lambda ip, port: postit(f'http://{ip}:{port}').send) as p:
 
 with HttpFn(lambda ip, port: postit(f'http://{ip}:{port}').send) as p:
     hope(p, will='send data or w/e', given=(b'["a", 1]', ), desire=b'["a", 1]')
+
+
+with Script('./asdf.py') as s:
+    hope(s, will='compress a line piped in',
+        given=('2020-11-09T06:19:24.610Z openbsd-dev httpd[81336]: hello 192.168.1.111 - - [09/Nov/2020:01:19:24 -0500] "GET /aaaaab/bzz.gif HTTP/1.1" 200 0 "http://192.168.8.88/this/page" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.88; rv:888.0) Gecko/20100101 Firefox/88.0"\n',),
+        desire=b'["v1", "ok", "/aaaaab/bzz.gif", "http://192.168.8.88/this/page", 1194, 2]')
 
 
 if len(regrets) > 0:
