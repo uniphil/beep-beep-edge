@@ -90,6 +90,8 @@ class HttpFn(object):
     def __exit__(self, *_errstuff):
         assert self.q.empty(), 'wat, queue not empty'
 
+print(B('Test time!'), c(sys.version_info), file=sys.stderr)
+
 
 hope(unwrap_syslog, will='strip the syslog bit before the message',
     given=('2001-01-01T00:00:01.000Z host service[12345]: some message\n',),
