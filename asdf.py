@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import hashlib
+import json
 import re
 import struct
+import urllib.request
 
 
 def unwrap_syslog(line):
@@ -23,8 +25,29 @@ def compress(ip, ua):
     return bucket, clz
 
 
-def vroom(logline):
-    desysed = unwrap_syslog(logline)
-    ip, path, referrer, ua = parse_httpd_log(desysed)
-    bucket, zeros = compress(ip, ua)
-    return path, referrer, bucket, zeros
+def run_lines(lines):
+    for line in lines:
+        if line.strip() == '':
+            continue
+        desysed = unwrap_syslog(line)
+        ip, path, referrer, ua = parse_httpd_log(desysed)
+        bucket, zeros = compress(ip, ua)
+        yield json.dumps(['v1', 'ok', path, referrer, bucket, zeros])
+
+
+def postit(url):
+    r = urllib.request.Request(url, b'', {'Content-Type': 'application/json'})
+    while True:
+        r.data = yield
+        with urllib.request.urlopen(r, timeout=2) as resp:
+            if resp.status != 202:
+                raise Exception('ohno', resp.status)
+
+
+if __name__ == '__main__':
+    import fileinput
+    import os
+    post_office = postit(os.environ['DESTINATION'])
+    next(post_office)  # unfortunate init
+    for compressed in run_lines(fileinput.input()):
+        post_office.send(compressed)
